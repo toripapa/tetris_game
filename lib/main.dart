@@ -208,7 +208,10 @@ class _TetrisGameScreenState extends State<TetrisGameScreen> {
   ItemType? selectedItem;
   Timer? gameTimer;
   Timer? garbageTimer;
+
   bool isGameOver = false;
+  bool isRoundTransition = false; // 💡 라운드 변경 트랜지션 상태
+
   int score = 0;
   int currentRound = 1;
 
@@ -226,7 +229,6 @@ class _TetrisGameScreenState extends State<TetrisGameScreen> {
   final Random random = Random();
   final FocusNode _focusNode = FocusNode();
 
-  // 💡 [핵심 최적화 1] 7개의 각 사운드마다 전용 플레이어를 담을 Map 구조를 생성합니다.
   final Map<String, List<AudioPlayer>> _sfxPools = {};
   final Map<String, int> _poolIndices = {};
   final List<String> _soundFiles = [
@@ -243,7 +245,6 @@ class _TetrisGameScreenState extends State<TetrisGameScreen> {
   void initState() {
     super.initState();
 
-    // 💡 [핵심 최적화 2] 게임 화면이 켜질 때, 파일별로 플레이어를 3개씩 만들고 미리 장전시켜 둡니다.
     for (String file in _soundFiles) {
       _sfxPools[file] = [];
       _poolIndices[file] = 0;
@@ -260,22 +261,20 @@ class _TetrisGameScreenState extends State<TetrisGameScreen> {
     _startGameLoop();
   }
 
-  // 💡 [핵심 최적화 3] 파일을 찾지 않고, 요청된 이름의 미리 장전된 플레이어를 즉시 격발합니다.
   void _playSound(String fileName) async {
     try {
       final pool = _sfxPools[fileName];
       if (pool != null) {
         int idx = _poolIndices[fileName]!;
-        await pool[idx].stop(); // 혹시 재생 중이면 멈추고
-        await pool[idx].resume(); // 0.001초만에 즉시 발사!
-        _poolIndices[fileName] = (idx + 1) % pool.length; // 다음 순번으로 넘김
+        await pool[idx].stop();
+        await pool[idx].resume();
+        _poolIndices[fileName] = (idx + 1) % pool.length;
       }
     } catch (e) {
       debugPrint(e.toString());
     }
   }
 
-  // --- 랭킹 데이터 가져오기 ---
   Future<void> _fetchTopRankings() async {
     setState(() => isFetchingRank = true);
     try {
@@ -318,14 +317,40 @@ class _TetrisGameScreenState extends State<TetrisGameScreen> {
   }
 
   void _addGarbageLine() {
-    if (isGameOver) return;
+    if (isGameOver || isRoundTransition) return;
     for (int r = 0; r < colLength - 1; r++) board[r] = List.from(board[r + 1]);
     int empty = random.nextInt(rowLength);
     board[colLength - 1] = List.generate(rowLength, (c) => c == empty ? null : Block(color: Colors.grey, isGarbage: true));
     setState(() {});
   }
 
+  // 💡 [추가] 라운드가 오를 때 발동하는 연출 로직
+  void _advanceRound(int newRound) {
+    gameTimer?.cancel();
+    garbageTimer?.cancel();
+
+    setState(() {
+      currentRound = newRound;
+      isRoundTransition = true;
+      // 보드와 현재 블록 모두 초기화
+      board = List.generate(colLength, (_) => List.filled(rowLength, null));
+      currentPiece = [];
+    });
+
+    // 1초 뒤 게임 재개
+    Future.delayed(const Duration(seconds: 1), () {
+      if (!mounted || isGameOver) return;
+      setState(() {
+        isRoundTransition = false;
+      });
+      _spawnNewPiece();
+      _startGameLoop();
+    });
+  }
+
   void _spawnNewPiece() {
+    if (isRoundTransition) return;
+
     int idx = random.nextInt(7);
     final List<List<List<int>>> tetro = [
       [[0,0],[0,1],[0,2],[0,3]], [[0,0],[0,1],[1,0],[1,1]], [[0,1],[1,0],[1,1],[1,2]],
@@ -372,11 +397,16 @@ class _TetrisGameScreenState extends State<TetrisGameScreen> {
       }
     }
     _playSound('block_drop.wav');
-    _clearLines();
-    _spawnNewPiece();
+
+    // 💡 라운드가 넘어가지 않았을 때만 새 블록 소환
+    bool roundAdvanced = _clearLines();
+    if (!roundAdvanced) {
+      _spawnNewPiece();
+    }
   }
 
-  void _clearLines() {
+  // 💡 반환값을 bool로 변경 (라운드 전환 발생 여부)
+  bool _clearLines() {
     int linesCleared = 0;
     for (int r = colLength - 1; r >= 0; r--) {
       bool isFull = true;
@@ -391,35 +421,60 @@ class _TetrisGameScreenState extends State<TetrisGameScreen> {
       _playSound('line_clear.wav');
       score += [0, 10, 30, 60, 80][linesCleared];
       int nr = (score ~/ 200) + 1;
-      if (nr > currentRound) { currentRound = nr; _startGameLoop(); }
+
+      // 💡 200점을 넘어 라운드 전환 발생
+      if (nr > currentRound) {
+        _advanceRound(nr);
+        return true;
+      }
       setState(() {});
     }
+    return false;
   }
 
   void _hardDrop() {
-    if (isGameOver) return;
+    if (isGameOver || isRoundTransition) return; // 💡 연출 중 막기
     while (!_checkCollision(currentPieceRow + 1, currentPieceCol, currentPiece)) currentPieceRow++;
     _lockPiece();
   }
 
   void _applyItem(ItemType type, int r, int c) {
+    if (isRoundTransition) return; // 💡 연출 중 막기
+
     inventory[type] = inventory[type]! - 1;
     switch (type) {
-      case ItemType.finger: _playSound('item_curr.wav'); board[r][c] = null; break;
+      case ItemType.finger:
+        _playSound('item_curr.wav'); board[r][c] = null;
+        score += 20; // 💡 아이템 점수 추가
+        break;
       case ItemType.bomb:
         _playSound('item_bom.wav');
         for (int i = r - 1; i <= r + 1; i++) for (int j = c - 1; j <= c + 1; j++) if (i >= 0 && i < colLength && j >= 0 && j < rowLength) board[i][j] = null;
+        score += 30;
         break;
-      case ItemType.scissors: _playSound('item_line.wav'); board[r] = List.filled(rowLength, null); break;
-      case ItemType.eraser: _playSound('item_all.wav'); board = List.generate(colLength, (_) => List.filled(rowLength, null)); break;
+      case ItemType.scissors:
+        _playSound('item_line.wav'); board[r] = List.filled(rowLength, null);
+        score += 50;
+        break;
+      case ItemType.eraser:
+        _playSound('item_all.wav'); board = List.generate(colLength, (_) => List.filled(rowLength, null));
+        score += 100;
+        break;
     }
     setState(() => selectedItem = null);
+
+    // 💡 아이템 사용으로 점수가 올라서 라운드가 넘어가면 트랜지션 실행
+    int nr = (score ~/ 200) + 1;
+    if (nr > currentRound) {
+      _advanceRound(nr);
+    }
   }
 
-  void _moveDown() { if (!_checkCollision(currentPieceRow + 1, currentPieceCol, currentPiece)) setState(() => currentPieceRow++); else _lockPiece(); }
-  void _moveLeft() { if (!_checkCollision(currentPieceRow, currentPieceCol - 1, currentPiece)) setState(() => currentPieceCol--); }
-  void _moveRight() { if (!_checkCollision(currentPieceRow, currentPieceCol + 1, currentPiece)) setState(() => currentPieceCol++); }
+  void _moveDown() { if (isRoundTransition) return; if (!_checkCollision(currentPieceRow + 1, currentPieceCol, currentPiece)) setState(() => currentPieceRow++); else _lockPiece(); }
+  void _moveLeft() { if (isRoundTransition) return; if (!_checkCollision(currentPieceRow, currentPieceCol - 1, currentPiece)) setState(() => currentPieceCol--); }
+  void _moveRight() { if (isRoundTransition) return; if (!_checkCollision(currentPieceRow, currentPieceCol + 1, currentPiece)) setState(() => currentPieceCol++); }
   void _rotate() {
+    if (isRoundTransition) return;
     List<List<int>> rotated = currentPiece.map((p) => [p[1], -p[0]]).toList();
     if (!_checkCollision(currentPieceRow, currentPieceCol, rotated)) {
       setState(() => currentPiece = rotated);
@@ -456,7 +511,7 @@ class _TetrisGameScreenState extends State<TetrisGameScreen> {
                     bool isArmed = selectedItem == t;
                     return GestureDetector(
                       onTap: () {
-                        if (inventory[t]! > 0) {
+                        if (inventory[t]! > 0 && !isRoundTransition) {
                           if (t == ItemType.eraser) _applyItem(t, 0, 0);
                           else setState(() => selectedItem = isArmed ? null : t);
                         }
@@ -487,6 +542,16 @@ class _TetrisGameScreenState extends State<TetrisGameScreen> {
                           Column(children: List.generate(colLength, (r) => Expanded(child: Row(children: List.generate(rowLength, (c) => Expanded(
                             child: GestureDetector(onTap: () => selectedItem != null ? _applyItem(selectedItem!, r, c) : null, child: _buildCell(r, c)),
                           )))))),
+
+                          // 💡 [추가] 라운드 트랜지션 화면
+                          if (isRoundTransition)
+                            Container(
+                              color: Colors.black.withOpacity(0.85),
+                              child: Center(
+                                child: Text("ROUND $currentRound", style: const TextStyle(color: Colors.yellowAccent, fontSize: 40, fontWeight: FontWeight.bold)),
+                              ),
+                            ),
+
                           if (isGameOver) _buildRankingOverlay(),
                         ],
                       ),
@@ -577,7 +642,6 @@ class _TetrisGameScreenState extends State<TetrisGameScreen> {
     );
   }
 
-  // 💡 [핵심 최적화 4] 게임 종료 시 모든 사운드 풀 메모리 해제 로직 추가
   @override
   void dispose() {
     gameTimer?.cancel();
