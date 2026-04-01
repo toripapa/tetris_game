@@ -226,16 +226,32 @@ class _TetrisGameScreenState extends State<TetrisGameScreen> {
   final Random random = Random();
   final FocusNode _focusNode = FocusNode();
 
-  // 💡 효과음이 겹쳐도 끊기지 않게 플레이어를 5개 미리 준비합니다.
-  final List<AudioPlayer> _sfxPlayers = [];
-  int _currentPlayerIndex = 0;
+  // 💡 [핵심 최적화 1] 7개의 각 사운드마다 전용 플레이어를 담을 Map 구조를 생성합니다.
+  final Map<String, List<AudioPlayer>> _sfxPools = {};
+  final Map<String, int> _poolIndices = {};
+  final List<String> _soundFiles = [
+    'block_drop.wav',
+    'line_clear.wav',
+    'item_curr.wav',
+    'item_bom.wav',
+    'item_line.wav',
+    'item_all.wav',
+    'block_change.wav'
+  ];
 
   @override
   void initState() {
     super.initState();
-    // 💡 게임 화면이 켜질 때 플레이어 5개를 세팅합니다.
-    for (int i = 0; i < 5; i++) {
-      _sfxPlayers.add(AudioPlayer()..setReleaseMode(ReleaseMode.stop));
+
+    // 💡 [핵심 최적화 2] 게임 화면이 켜질 때, 파일별로 플레이어를 3개씩 만들고 미리 장전시켜 둡니다.
+    for (String file in _soundFiles) {
+      _sfxPools[file] = [];
+      _poolIndices[file] = 0;
+      for (int i = 0; i < 3; i++) {
+        final player = AudioPlayer()..setReleaseMode(ReleaseMode.stop);
+        player.setSource(AssetSource('audio/$file'));
+        _sfxPools[file]!.add(player);
+      }
     }
 
     currentRound = widget.startRound;
@@ -244,12 +260,15 @@ class _TetrisGameScreenState extends State<TetrisGameScreen> {
     _startGameLoop();
   }
 
-  // 💡 매번 새로 부르지 않고 만들어둔 플레이어를 즉시 재생합니다.
+  // 💡 [핵심 최적화 3] 파일을 찾지 않고, 요청된 이름의 미리 장전된 플레이어를 즉시 격발합니다.
   void _playSound(String fileName) async {
     try {
-      if (_sfxPlayers.isNotEmpty) {
-        await _sfxPlayers[_currentPlayerIndex].play(AssetSource('audio/$fileName'));
-        _currentPlayerIndex = (_currentPlayerIndex + 1) % _sfxPlayers.length;
+      final pool = _sfxPools[fileName];
+      if (pool != null) {
+        int idx = _poolIndices[fileName]!;
+        await pool[idx].stop(); // 혹시 재생 중이면 멈추고
+        await pool[idx].resume(); // 0.001초만에 즉시 발사!
+        _poolIndices[fileName] = (idx + 1) % pool.length; // 다음 순번으로 넘김
       }
     } catch (e) {
       debugPrint(e.toString());
@@ -558,14 +577,16 @@ class _TetrisGameScreenState extends State<TetrisGameScreen> {
     );
   }
 
-  // 💡 게임 종료 시 플레이어 메모리 해제 로직 추가
+  // 💡 [핵심 최적화 4] 게임 종료 시 모든 사운드 풀 메모리 해제 로직 추가
   @override
   void dispose() {
     gameTimer?.cancel();
     garbageTimer?.cancel();
     _focusNode.dispose();
-    for (var player in _sfxPlayers) {
-      player.dispose();
+    for (var pool in _sfxPools.values) {
+      for (var player in pool) {
+        player.dispose();
+      }
     }
     super.dispose();
   }
