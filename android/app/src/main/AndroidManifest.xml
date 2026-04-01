@@ -2,7 +2,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
-        android:label="소민팡팡"
+        android:label="도윤리스"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
