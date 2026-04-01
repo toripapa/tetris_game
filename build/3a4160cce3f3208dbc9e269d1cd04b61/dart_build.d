@@ -1,1 +1,0 @@
- /Users/1004787/Documents/tetris_game/build/3a4160cce3f3208dbc9e269d1cd04b61/dart_build_result.json:  /Users/1004787/Documents/tetris_game/.dart_tool/package_config.json /Users/1004787/Documents/tetris_game/pubspec.yaml /opt/homebrew/share/flutter/bin/cache/dart-sdk/version
