@@ -255,7 +255,7 @@ class _TetrisGameScreenState extends State<TetrisGameScreen> {
     }
 
     currentRound = widget.startRound;
-    score = (currentRound - 1) * 1000;
+    score = (currentRound - 1) * 200;
     _spawnNewPiece();
     _startGameLoop();
   }
@@ -390,7 +390,7 @@ class _TetrisGameScreenState extends State<TetrisGameScreen> {
     if (linesCleared > 0) {
       _playSound('line_clear.wav');
       score += [0, 10, 30, 60, 80][linesCleared];
-      int nr = (score ~/ 1000) + 1;
+      int nr = (score ~/ 200) + 1;
       if (nr > currentRound) { currentRound = nr; _startGameLoop(); }
       setState(() {});
     }
