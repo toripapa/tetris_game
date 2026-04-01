@@ -226,19 +226,34 @@ class _TetrisGameScreenState extends State<TetrisGameScreen> {
   final Random random = Random();
   final FocusNode _focusNode = FocusNode();
 
+  // 💡 효과음이 겹쳐도 끊기지 않게 플레이어를 5개 미리 준비합니다.
+  final List<AudioPlayer> _sfxPlayers = [];
+  int _currentPlayerIndex = 0;
+
   @override
   void initState() {
     super.initState();
+    // 💡 게임 화면이 켜질 때 플레이어 5개를 세팅합니다.
+    for (int i = 0; i < 5; i++) {
+      _sfxPlayers.add(AudioPlayer()..setReleaseMode(ReleaseMode.stop));
+    }
+
     currentRound = widget.startRound;
     score = (currentRound - 1) * 1000;
     _spawnNewPiece();
     _startGameLoop();
   }
 
+  // 💡 매번 새로 부르지 않고 만들어둔 플레이어를 즉시 재생합니다.
   void _playSound(String fileName) async {
     try {
-      await AudioPlayer().play(AssetSource('audio/$fileName'));
-    } catch (e) { debugPrint(e.toString()); }
+      if (_sfxPlayers.isNotEmpty) {
+        await _sfxPlayers[_currentPlayerIndex].play(AssetSource('audio/$fileName'));
+        _currentPlayerIndex = (_currentPlayerIndex + 1) % _sfxPlayers.length;
+      }
+    } catch (e) {
+      debugPrint(e.toString());
+    }
   }
 
   // --- 랭킹 데이터 가져오기 ---
@@ -543,6 +558,15 @@ class _TetrisGameScreenState extends State<TetrisGameScreen> {
     );
   }
 
+  // 💡 게임 종료 시 플레이어 메모리 해제 로직 추가
   @override
-  void dispose() { gameTimer?.cancel(); garbageTimer?.cancel(); _focusNode.dispose(); super.dispose(); }
+  void dispose() {
+    gameTimer?.cancel();
+    garbageTimer?.cancel();
+    _focusNode.dispose();
+    for (var player in _sfxPlayers) {
+      player.dispose();
+    }
+    super.dispose();
+  }
 }
