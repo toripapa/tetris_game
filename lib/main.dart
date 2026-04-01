@@ -303,10 +303,10 @@ class _TetrisGameScreenState extends State<TetrisGameScreen> {
     currentPieceCol = 3;
 
     int roll = random.nextInt(100) + 1;
-    if (roll <= 20) { currentItemType = ItemType.finger; currentFaceImage = 'assets/do.png'; }
-    else if (roll <= 35) { currentItemType = ItemType.bomb; currentFaceImage = 'assets/so.png'; }
-    else if (roll <= 45) { currentItemType = ItemType.scissors; currentFaceImage = 'assets/c1.png'; }
-    else if (roll <= 50) { currentItemType = ItemType.eraser; currentFaceImage = 'assets/c2.png'; }
+    if (roll <= 10) { currentItemType = ItemType.finger; currentFaceImage = 'assets/do.png'; }
+    else if (roll <= 15) { currentItemType = ItemType.bomb; currentFaceImage = 'assets/so.png'; }
+    else if (roll <= 20) { currentItemType = ItemType.scissors; currentFaceImage = 'assets/c1.png'; }
+    else if (roll <= 23) { currentItemType = ItemType.eraser; currentFaceImage = 'assets/c2.png'; }
     else { currentItemType = null; currentFaceImage = null; }
 
     currentFaceIndex = currentItemType != null ? random.nextInt(4) : -1;
